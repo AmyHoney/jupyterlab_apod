@@ -1,9 +1,15 @@
 import {
+  ILayoutRestorer, //Restor panel state when the browser refreshes
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 
-import { ICommandPalette, MainAreaWidget } from '@jupyterlab/apputils';
+import { 
+  ICommandPalette, 
+  MainAreaWidget, 
+  WidgetTracker
+} from '@jupyterlab/apputils';
+
 import { Message } from '@lumino/messaging';
 import { Widget } from '@lumino/widgets'; 
 
@@ -61,7 +67,7 @@ class APODWidget extends Widget {
       return;
     } 
 
-    const data = await response.json() as APODResponse;
+    const data = (await response.json()) as APODResponse;
 
     if (data.media_type === 'image') {
       // Populate the image
@@ -81,30 +87,40 @@ class APODWidget extends Widget {
     randomDate(): string {
       const start = new Date(2010, 1, 1);
       const end = new Date();
-      const randomDate = new Date(start.getTime() + Math.random()*(end.getTime() - start.getTime()));
+      const randomDate = new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
       return randomDate.toISOString().slice(0, 10);
     }
 }
 
-function activate(app: JupyterFrontEnd, palette: ICommandPalette) {
+function activate(app: JupyterFrontEnd, palette: ICommandPalette, restorer: ILayoutRestorer) {
   console.log('JupyterLab extension jupyterlab_apod is activated!');
 
-  // create a single widget
-  const content = new APODWidget();
-  const widget = new MainAreaWidget({content});
-  widget.id = 'apod-jupyterlab';
-  widget.title.label = 'Astronomy Picture';
-  widget.title.closable = true;
+  //Declare a widget variable
+  let widget: MainAreaWidget<APODWidget>;
 
   // Add an application command
   const command: string = 'apod:open';
   app.commands.addCommand(command, {
     label: 'Random Astronomy Picture',
     execute: () => {
-      if (!widget.isAttached) {
-        // attach the widget to the main work area if it's not there
+      if (!widget || widget.isDisposed) {
+        // create a new widget if one doesn't exist or if the previous one was disposed after closing the panel
+        const content = new APODWidget();
+        widget = new MainAreaWidget({content});
+        widget.id = 'apod-jupyterlab';
+        widget.title.label = 'Astronomy Picture';
+        widget.title.closable = true;
+      }
+      if (!tracker.has(widget)) {
+        // Track the state of the widget for later restoration
+        tracker.add(widget);
+      }
+      if(!widget.isAttached){
+        // Attach the widget to the main work area if it's not there
         app.shell.add(widget, 'main');
       }
+      widget.content.update();
+
       //Activate the widget
       app.shell.activateById(widget.id);
     }
@@ -113,6 +129,14 @@ function activate(app: JupyterFrontEnd, palette: ICommandPalette) {
   // add the command to the palette
   palette.addItem({ command, category: 'Tutorial'});
 
+  // Track and restore the widget state
+  let tracker = new WidgetTracker<MainAreaWidget<APODWidget>>({
+    namespace: 'apod'
+  });
+  restorer.restore(tracker, {
+    command,
+    name: () => 'apod'
+  });
 }
 
 /**
@@ -122,7 +146,7 @@ function activate(app: JupyterFrontEnd, palette: ICommandPalette) {
 const extension: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_apod',
   autoStart: true,
-  requires: [ICommandPalette],
+  requires: [ICommandPalette, ILayoutRestorer],
   activate: activate
 };
 
